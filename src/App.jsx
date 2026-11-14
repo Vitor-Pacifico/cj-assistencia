@@ -4,9 +4,19 @@ import { addDoc, collection, deleteDoc, doc, onSnapshot, updateDoc } from "fireb
 import { auth, db } from "./firebase";
 import { brl, dg, fdata, hoje, mCep, mCpf, mTel, mVal } from "./utils";
 
+const SERVICOS = [
+  "Troca de motor",
+  "Recarga de gás",
+  "Manutenção parte elétrica",
+  "Troca de peça",
+  "Higienização",
+  "Outros",
+];
+const pedeDetalhe = (s) => s === "Troca de peça" || s === "Outros";
+
 const vazio = () => ({
   nome: "", cpf: "", tel: "", cep: "", num: "", rua: "",
-  ap: "Máquina de lavar", dt: hoje(), vl: "",
+  ap: "Máquina de lavar", dt: hoje(), servico: "", detalhe: "", vl: "",
 });
 
 function Login() {
@@ -90,8 +100,18 @@ function Painel({ user }) {
     const vl = parseInt(dg(f.vl) || "0", 10);
     if (!f.nome.trim()) return setErro("Preencha o nome do cliente.");
     if (!f.dt) return setErro("Escolha a data do serviço.");
+    if (!f.servico) return setErro("Escolha o tipo de serviço.");
+    if (pedeDetalhe(f.servico) && !f.detalhe.trim())
+      return setErro(f.servico === "Troca de peça" ? "Informe qual peça foi trocada." : "Descreva o serviço feito.");
     if (!vl) return setErro("Preencha o valor do serviço.");
-    const dados = { ...f, nome: f.nome.trim(), rua: f.rua.trim(), num: f.num.trim(), vl };
+    const dados = {
+      ...f,
+      nome: f.nome.trim(),
+      rua: f.rua.trim(),
+      num: f.num.trim(),
+      detalhe: pedeDetalhe(f.servico) ? f.detalhe.trim() : "",
+      vl,
+    };
     try {
       if (editId) await updateDoc(doc(db, "users", user.uid, "servicos", editId), dados);
       else await addDoc(col, { ...dados, criadoEm: Date.now() });
@@ -127,7 +147,7 @@ function Painel({ user }) {
         if (mes && x.dt.slice(0, 7) !== mes) return false;
         if (!t) return true;
         return (
-          `${x.nome} ${x.rua || ""}`.toLowerCase().includes(t) ||
+          `${x.nome} ${x.rua || ""} ${x.servico || ""} ${x.detalhe || ""}`.toLowerCase().includes(t) ||
           (td && (dg(x.cpf).includes(td) || dg(x.tel).includes(td)))
         );
       })
@@ -138,9 +158,9 @@ function Painel({ user }) {
 
   function exportar() {
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const cab = ["Data", "Cliente", "CPF", "Telefone", "CEP", "Rua", "Número", "Aparelho", "Valor"];
+    const cab = ["Data", "Cliente", "CPF", "Telefone", "CEP", "Rua", "Número", "Aparelho", "Serviço", "Detalhe", "Valor"];
     const linhas = lista.map((x) =>
-      [fdata(x.dt), x.nome, x.cpf, x.tel, x.cep, x.rua, x.num, x.ap, (x.vl / 100).toFixed(2).replace(".", ",")].map(esc).join(";")
+      [fdata(x.dt), x.nome, x.cpf, x.tel, x.cep, x.rua, x.num, x.ap, x.servico, x.detalhe, (x.vl / 100).toFixed(2).replace(".", ",")].map(esc).join(";")
     );
     const blob = new Blob(["\ufeff" + [cab.map(esc).join(";"), ...linhas].join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -172,6 +192,15 @@ function Painel({ user }) {
           <div><label htmlFor="ap">Aparelho *</label>
             <select id="ap" value={f.ap} onChange={set("ap")}><option>Máquina de lavar</option><option>Geladeira</option></select></div>
           <div><label htmlFor="dt">Data do serviço *</label><input id="dt" type="date" value={f.dt} onChange={set("dt")} /></div>
+          <div className="full"><label htmlFor="sv">Tipo de serviço *</label>
+            <select id="sv" value={f.servico} onChange={set("servico")}>
+              <option value="">Selecione…</option>
+              {SERVICOS.map((s) => <option key={s}>{s}</option>)}
+            </select></div>
+          {pedeDetalhe(f.servico) && (
+            <div className="full"><label htmlFor="det">{f.servico === "Troca de peça" ? "Qual peça? *" : "Descreva o serviço *"}</label>
+              <input id="det" value={f.detalhe} onChange={set("detalhe")} placeholder={f.servico === "Troca de peça" ? "Ex.: bomba de drenagem" : "O que foi feito"} /></div>
+          )}
           <div className="full"><label htmlFor="vl">Valor *</label><input id="vl" inputMode="numeric" placeholder="R$ 0,00" value={f.vl} onChange={(e) => setF((p) => ({ ...p, vl: mVal(e.target.value) }))} /></div>
         </div>
         <div className="err" role="alert">{erro}</div>
@@ -201,6 +230,7 @@ function Painel({ user }) {
                 <div><div className="nm">{x.nome}</div><span className="tag">{x.ap}</span> <span className="meta">{fdata(x.dt)}</span></div>
                 <div className="vl">{brl(x.vl)}</div>
               </div>
+              {x.servico && <div className="svc">{x.servico}{x.detalhe ? `: ${x.detalhe}` : ""}</div>}
               {end && <div className="meta">{end}</div>}
               {contato && <div className="meta">{contato}</div>}
               <div className="row" style={{ marginTop: 10 }}>
