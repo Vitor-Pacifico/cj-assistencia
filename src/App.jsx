@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { brl, dg, fdata, hoje, mCep, mCpf, mTel, mVal } from "./utils";
+import { brl, dg, fdata, hoje, mCep, mDocumento, mTel, mVal } from "./utils";
 
 const SERVICOS = [
   "Troca de motor",
@@ -10,6 +10,7 @@ const SERVICOS = [
   "Manutenção parte elétrica",
   "Troca de peça",
   "Higienização",
+  "Venda de aparelho",
   "Outros",
 ];
 const pedeDetalhe = (s) => s === "Troca de peça" || s === "Outros";
@@ -183,7 +184,7 @@ function Painel({ user }) {
       const serv = [x.servico, x.detalhe && `(${x.detalhe})`].filter(Boolean).join(" ");
       return [
         `Nome ${x.nome}`,
-        x.cpf && `CPF ${x.cpf}`,
+        x.cpf && `${dg(x.cpf).length > 11 ? "CNPJ" : "CPF"} ${x.cpf}`,
         x.cep && `CEP ${x.cep}`,
         endereco(x),
         x.bairro && `Bairro ${x.bairro}`,
@@ -219,7 +220,7 @@ function Painel({ user }) {
         <h2>{editId ? "Editar serviço" : "Novo serviço"}</h2>
         <div className="g">
           <div className="full"><label htmlFor="nome">Nome do cliente *</label><input id="nome" value={f.nome} onChange={set("nome")} /></div>
-          <div><label htmlFor="cpf">CPF</label><input id="cpf" inputMode="numeric" placeholder="000.000.000-00" value={f.cpf} onChange={(e) => setF((p) => ({ ...p, cpf: mCpf(e.target.value) }))} /></div>
+          <div><label htmlFor="cpf">CPF ou CNPJ</label><input id="cpf" inputMode="numeric" placeholder="000.000.000-00 / 00.000.000/0000-00" value={f.cpf} onChange={(e) => setF((p) => ({ ...p, cpf: mDocumento(e.target.value) }))} /></div>
           <div><label htmlFor="tel">Telefone (WhatsApp)</label><input id="tel" inputMode="tel" placeholder="(15) 90000-0000" value={f.tel} onChange={(e) => setF((p) => ({ ...p, tel: mTel(e.target.value) }))} /></div>
           <div className="full"><label htmlFor="cep">CEP</label><input id="cep" inputMode="numeric" placeholder="00000-000" value={f.cep} onChange={onCep} /></div>
           
@@ -255,7 +256,7 @@ function Painel({ user }) {
         <div className="tot"><span className="sub" style={{ margin: 0 }}>{lista.length} {lista.length === 1 ? "serviço" : "serviços"}</span><b>{brl(total)}</b></div>
         <p className="sub" style={{ margin: "2px 0 12px" }}>Total do período selecionado</p>
         <div className="bar">
-          <input type="search" placeholder="Buscar por nome, CPF, rua ou telefone" aria-label="Buscar" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input type="search" placeholder="Buscar por nome, CPF/CNPJ, rua ou telefone" aria-label="Buscar" value={q} onChange={(e) => setQ(e.target.value)} />
           <input type="month" aria-label="Mês" value={mes} onChange={(e) => setMes(e.target.value)} />
           <button className="btn sec" type="button" onClick={() => setMes("")}>Ver todos os meses</button>
           <button className="btn sec" type="button" onClick={exportar} disabled={!lista.length}>Baixar relatório (TXT)</button>
@@ -264,7 +265,7 @@ function Painel({ user }) {
         {!lista.length && <div className="empty">{itens.length ? "Nenhum serviço encontrado neste filtro." : "Nenhum serviço registrado ainda."}</div>}
         {lista.map((x) => {
           const end = [[x.rua, x.num].filter(Boolean).join(", "), x.bairro, x.cep && `CEP ${x.cep}`].filter(Boolean).join(" · ");
-          const contato = [x.cpf && `CPF ${x.cpf}`, x.tel].filter(Boolean).join(" · ");
+          const contato = [x.cpf && `${dg(x.cpf).length > 11 ? "CNPJ" : "CPF"} ${x.cpf}`, x.tel].filter(Boolean).join(" · ");
           return (
             <div className="it" key={x.id}>
               <div className="top">
