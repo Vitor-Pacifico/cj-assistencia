@@ -14,9 +14,18 @@ const SERVICOS = [
 ];
 const pedeDetalhe = (s) => s === "Troca de peça" || s === "Outros";
 
+const APARELHOS = [
+  "Máquina de lavar",
+  "Máquina lava e seca",
+  "Geladeira",
+  "Bebedouro",
+  "Micro-ondas",
+  "Outros",
+];
+
 const vazio = () => ({
-  nome: "", cpf: "", tel: "", cep: "", num: "", rua: "",
-  ap: "Máquina de lavar", dt: hoje(), servico: "", detalhe: "", vl: "",
+  nome: "", cpf: "", tel: "", cep: "", rua: "", bairro: "", num: "",
+  ap: "Máquina de lavar", apDetalhe: "", dt: hoje(), servico: "", detalhe: "", vl: "",
 });
 
 function Login() {
@@ -83,7 +92,8 @@ function Painel({ user }) {
       fetch(`https://viacep.com.br/ws/${dg(v)}/json/`)
         .then((r) => r.json())
         .then((j) => {
-          if (j && !j.erro && j.logradouro) setF((p) => (p.rua ? p : { ...p, rua: j.logradouro }));
+          if (j && !j.erro)
+            setF((p) => ({ ...p, rua: p.rua || j.logradouro || "", bairro: p.bairro || j.bairro || "" }));
         })
         .catch(() => {});
     }
@@ -100,6 +110,7 @@ function Painel({ user }) {
     const vl = parseInt(dg(f.vl) || "0", 10);
     if (!f.nome.trim()) return setErro("Preencha o nome do cliente.");
     if (!f.dt) return setErro("Escolha a data do serviço.");
+    if (f.ap === "Outros" && !f.apDetalhe.trim()) return setErro("Informe qual é o aparelho.");
     if (!f.servico) return setErro("Escolha o tipo de serviço.");
     if (pedeDetalhe(f.servico) && !f.detalhe.trim())
       return setErro(f.servico === "Troca de peça" ? "Informe qual peça foi trocada." : "Descreva o serviço feito.");
@@ -109,6 +120,8 @@ function Painel({ user }) {
       nome: f.nome.trim(),
       rua: f.rua.trim(),
       num: f.num.trim(),
+      bairro: f.bairro.trim(),
+      apDetalhe: f.ap === "Outros" ? f.apDetalhe.trim() : "",
       detalhe: pedeDetalhe(f.servico) ? f.detalhe.trim() : "",
       vl,
     };
@@ -147,7 +160,7 @@ function Painel({ user }) {
         if (mes && x.dt.slice(0, 7) !== mes) return false;
         if (!t) return true;
         return (
-          `${x.nome} ${x.rua || ""} ${x.servico || ""} ${x.detalhe || ""}`.toLowerCase().includes(t) ||
+          `${x.nome} ${x.rua || ""} ${x.bairro || ""} ${x.ap || ""} ${x.apDetalhe || ""} ${x.servico || ""} ${x.detalhe || ""}`.toLowerCase().includes(t) ||
           (td && (dg(x.cpf).includes(td) || dg(x.tel).includes(td)))
         );
       })
@@ -157,17 +170,39 @@ function Painel({ user }) {
   const total = lista.reduce((s, x) => s + x.vl, 0);
 
   function exportar() {
-    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const cab = ["Data", "Cliente", "CPF", "Telefone", "CEP", "Rua", "Número", "Aparelho", "Serviço", "Detalhe", "Valor"];
-    const linhas = lista.map((x) =>
-      [fdata(x.dt), x.nome, x.cpf, x.tel, x.cep, x.rua, x.num, x.ap, x.servico, x.detalhe, (x.vl / 100).toFixed(2).replace(".", ",")].map(esc).join(";")
-    );
-    const blob = new Blob(["\ufeff" + [cab.map(esc).join(";"), ...linhas].join("\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `servicos-${mes || "todos"}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const [a, m] = mes ? mes.split("-") : [];
+    const periodo = mes ? `${m}/${a}` : "todos os períodos";
+    const moeda = (c) => brl(c).replace(/\u00a0/g, " ");
+    const endereco = (x) => {
+      if (!x.rua) return x.num ? `Número ${x.num}` : "";
+      const r = [x.rua, x.num].filter(Boolean).join(", ");
+      return /^(rua|av|avenida|alameda|travessa|estrada|rodovia|praça|praca)(\s|\.|$)/i.test(x.rua) ? r : `Rua ${r}`;
+    };
+    const blocos = lista.map((x) => {
+      const ap = x.ap === "Outros" && x.apDetalhe ? x.apDetalhe : x.ap;
+      const serv = [x.servico, x.detalhe && `(${x.detalhe})`].filter(Boolean).join(" ");
+      return [
+        `Nome ${x.nome}`,
+        x.cpf && `CPF ${x.cpf}`,
+        x.cep && `CEP ${x.cep}`,
+        endereco(x),
+        x.bairro && `Bairro ${x.bairro}`,
+        `Serviço: ${[serv, ap].filter(Boolean).join(" - ")}`,
+        `Data ${fdata(x.dt)}`,
+        moeda(x.vl),
+      ].filter(Boolean).join("\n");
+    });
+    const texto = [
+      `CJ Assistência - Serviços (${periodo})`,
+      ...blocos,
+      `Total: ${moeda(total)} (${lista.length} ${lista.length === 1 ? "serviço" : "serviços"})`,
+    ].join("\n\n");
+    const blob = new Blob([texto + "\n"], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `servicos-${mes || "todos"}.txt`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
 
   return (
@@ -186,12 +221,18 @@ function Painel({ user }) {
           <div className="full"><label htmlFor="nome">Nome do cliente *</label><input id="nome" value={f.nome} onChange={set("nome")} /></div>
           <div><label htmlFor="cpf">CPF</label><input id="cpf" inputMode="numeric" placeholder="000.000.000-00" value={f.cpf} onChange={(e) => setF((p) => ({ ...p, cpf: mCpf(e.target.value) }))} /></div>
           <div><label htmlFor="tel">Telefone (WhatsApp)</label><input id="tel" inputMode="tel" placeholder="(15) 90000-0000" value={f.tel} onChange={(e) => setF((p) => ({ ...p, tel: mTel(e.target.value) }))} /></div>
-          <div><label htmlFor="cep">CEP</label><input id="cep" inputMode="numeric" placeholder="00000-000" value={f.cep} onChange={onCep} /></div>
-          <div><label htmlFor="num">Número</label><input id="num" inputMode="numeric" value={f.num} onChange={set("num")} /></div>
+          <div className="full"><label htmlFor="cep">CEP</label><input id="cep" inputMode="numeric" placeholder="00000-000" value={f.cep} onChange={onCep} /></div>
+          
           <div className="full"><label htmlFor="rua">Rua</label><input id="rua" value={f.rua} onChange={set("rua")} /></div>
+          <div className="full"><label htmlFor="bairro">Bairro</label><input id="bairro" value={f.bairro} onChange={set("bairro")} /></div>
+          <div className="full"><label htmlFor="num">Número da residência</label><input id="num" inputMode="numeric" value={f.num} onChange={set("num")} /></div>
           <div><label htmlFor="ap">Aparelho *</label>
-            <select id="ap" value={f.ap} onChange={set("ap")}><option>Máquina de lavar</option><option>Geladeira</option></select></div>
+            <select id="ap" value={f.ap} onChange={set("ap")}>{APARELHOS.map((a) => <option key={a}>{a}</option>)}</select></div>
           <div><label htmlFor="dt">Data do serviço *</label><input id="dt" type="date" value={f.dt} onChange={set("dt")} /></div>
+          {f.ap === "Outros" && (
+            <div className="full"><label htmlFor="apd">Qual aparelho? *</label>
+              <input id="apd" value={f.apDetalhe} onChange={set("apDetalhe")} placeholder="Ex.: cervejeira" /></div>
+          )}
           <div className="full"><label htmlFor="sv">Tipo de serviço *</label>
             <select id="sv" value={f.servico} onChange={set("servico")}>
               <option value="">Selecione…</option>
@@ -217,17 +258,17 @@ function Painel({ user }) {
           <input type="search" placeholder="Buscar por nome, CPF, rua ou telefone" aria-label="Buscar" value={q} onChange={(e) => setQ(e.target.value)} />
           <input type="month" aria-label="Mês" value={mes} onChange={(e) => setMes(e.target.value)} />
           <button className="btn sec" type="button" onClick={() => setMes("")}>Ver todos os meses</button>
-          <button className="btn sec" type="button" onClick={exportar} disabled={!lista.length}>Baixar planilha (CSV)</button>
+          <button className="btn sec" type="button" onClick={exportar} disabled={!lista.length}>Baixar relatório (TXT)</button>
         </div>
 
         {!lista.length && <div className="empty">{itens.length ? "Nenhum serviço encontrado neste filtro." : "Nenhum serviço registrado ainda."}</div>}
         {lista.map((x) => {
-          const end = [[x.rua, x.num].filter(Boolean).join(", "), x.cep && `CEP ${x.cep}`].filter(Boolean).join(" · ");
+          const end = [[x.rua, x.num].filter(Boolean).join(", "), x.bairro, x.cep && `CEP ${x.cep}`].filter(Boolean).join(" · ");
           const contato = [x.cpf && `CPF ${x.cpf}`, x.tel].filter(Boolean).join(" · ");
           return (
             <div className="it" key={x.id}>
               <div className="top">
-                <div><div className="nm">{x.nome}</div><span className="tag">{x.ap}</span> <span className="meta">{fdata(x.dt)}</span></div>
+                <div><div className="nm">{x.nome}</div><span className="tag">{x.ap === "Outros" && x.apDetalhe ? x.apDetalhe : x.ap}</span> <span className="meta">{fdata(x.dt)}</span></div>
                 <div className="vl">{brl(x.vl)}</div>
               </div>
               {x.servico && <div className="svc">{x.servico}{x.detalhe ? `: ${x.detalhe}` : ""}</div>}
